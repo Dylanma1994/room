@@ -1,6 +1,5 @@
 const { ethers } = require("ethers");
 const fs = require("fs-extra");
-const path = require("path");
 const ContractMonitor = require("./src/monitor");
 const Portfolio = require("./src/portfolio");
 const Trader = require("./src/trader");
@@ -10,6 +9,7 @@ class TokenBot {
     this.configFile = "./config.json";
     this.abiFile = "./abi/contract.json";
     this.isRunning = false;
+    this.periodicSellTimer = null; // 定时卖出计时器句柄
   }
 
   async loadConfig() {
@@ -85,7 +85,8 @@ class TokenBot {
         this.provider,
         this.config.contractAddress,
         this.abi,
-        this.onNewTokenDetected.bind(this)
+        this.onNewTokenDetected.bind(this),
+        this.onExternalBuyDetected.bind(this)
       );
 
       await this.monitor.init();
@@ -182,6 +183,64 @@ class TokenBot {
     }
   }
 
+  // 当他人买入我们持有的代币时，自动卖出
+  async onExternalBuyDetected({ subject, trader, isBuy }) {
+    try {
+      if (!isBuy) return;
+      if (!this.config.autoSellOnOthersBuy) return; // 开关控制
+
+      // 如果是我们自己买的，不触发
+      const selfAddress = this.wallet?.address?.toLowerCase();
+      if (
+        trader &&
+        trader.toLowerCase &&
+        trader.toLowerCase() === selfAddress
+      ) {
+        return;
+      }
+
+      // 检查是否持有该代币
+      const amount = await this.portfolio.getTokenAmount(subject);
+      if (!amount || amount <= 0) return;
+
+      console.log(`\n⚠️ 检测到他人买入我们持有的代币，触发自动卖出`);
+      console.log(`   代币: ${subject}`);
+      console.log(`   他人地址: ${trader}`);
+      console.log(`   我们持有数量: ${amount}`);
+
+      // 卖出全部持仓
+      const result = await this.trader.sellToken(subject, amount);
+      if (result.success) {
+        console.log(`✅ 因他人买入已卖出 ${subject}, tx: ${result.txHash}`);
+      } else {
+        console.log(`❌ 自动卖出失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("❌ 处理外部买入触发卖出时出错:", error);
+    }
+  }
+
+  setupPeriodicSell() {
+    if (this.periodicSellTimer) {
+      clearInterval(this.periodicSellTimer);
+      this.periodicSellTimer = null;
+    }
+    if (!this.config.autoSellIntervalMinutes) return;
+    const intervalMs =
+      Math.max(1, Number(this.config.autoSellIntervalMinutes)) * 60 * 1000;
+    console.log(
+      `⏲️ 已开启定时卖出: 每 ${this.config.autoSellIntervalMinutes} 分钟卖出所有代币`
+    );
+    this.periodicSellTimer = setInterval(async () => {
+      try {
+        console.log("\n⏲️ 定时任务触发: 卖出所有持仓代币");
+        await this.trader.sellAllTokens();
+      } catch (error) {
+        console.error("定时卖出失败:", error);
+      }
+    }, intervalMs);
+  }
+
   async start() {
     if (this.isRunning) {
       console.log("⚠️  机器人已在运行中");
@@ -196,6 +255,9 @@ class TokenBot {
 
     // 启动监控
     await this.monitor.startMonitoring();
+
+    // 启动定时卖出（如果配置）
+    this.setupPeriodicSell();
 
     // 设置优雅退出
     this.setupGracefulShutdown();
@@ -224,6 +286,11 @@ class TokenBot {
 
       if (this.monitor) {
         this.monitor.stopMonitoring();
+      }
+
+      if (this.periodicSellTimer) {
+        clearInterval(this.periodicSellTimer);
+        this.periodicSellTimer = null;
       }
 
       this.isRunning = false;

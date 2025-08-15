@@ -3,11 +3,12 @@ const fs = require("fs-extra");
 const path = require("path");
 
 class ContractMonitor {
-  constructor(provider, contractAddress, abi, onNewToken) {
+  constructor(provider, contractAddress, abi, onNewToken, onExternalBuy) {
     this.provider = provider;
     this.contractAddress = contractAddress;
     this.contract = new ethers.Contract(contractAddress, abi, provider);
     this.onNewToken = onNewToken;
+    this.onExternalBuy = onExternalBuy; // 当他人买入某代币时的回调
     this.isMonitoring = false;
     this.processedEvents = new Set();
     this.lastBlockFile = path.join("./data", "lastBlock.json");
@@ -229,8 +230,9 @@ class ContractMonitor {
         if (supply.toString() === "1") {
           console.log(`🎉 新代币创建: ${subject} (供应量=1) - 准备买入!`);
         } else {
+          // 仅在买入时简要记录
           console.log(
-            `⏭️  跳过: ${subject} (供应量=${supply.toString()}, 非新代币)`
+            `🟢 侦测到买入: ${subject} (供应量=${supply.toString()})`
           );
         }
       }
@@ -243,9 +245,6 @@ class ContractMonitor {
           // 使用 setImmediate 确保不阻塞事件循环
           setImmediate(async () => {
             try {
-              // 等待交易确认后再处理
-              // await this.waitForTransactionConfirmation(txHash);
-
               // 传递 multiplier 作为 curveIndex
               await this.onNewToken(
                 subject,
@@ -258,6 +257,24 @@ class ContractMonitor {
             }
           });
         }
+      }
+
+      // 对所有买入事件调用外部买入回调（由上层自行过滤是否需要卖出）
+      if (isBuy && this.onExternalBuy) {
+        setImmediate(async () => {
+          try {
+            await this.onExternalBuy({
+              subject,
+              trader: tradeData.trader,
+              isBuy,
+              supply: supply?.toString?.() || String(supply),
+              txHash,
+              blockNumber: blockNumber || 0,
+            });
+          } catch (error) {
+            console.error("处理外部买入回调时出错:", error);
+          }
+        });
       }
 
       // 更新最后处理的区块号
