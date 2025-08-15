@@ -16,17 +16,6 @@ class Trader {
     this.isTrading = false;
   }
 
-  _isAlreadySoldError(error) {
-    const msg = (
-      error?.shortMessage ||
-      error?.message ||
-      error?.reason ||
-      error?.info?.error?.message ||
-      ""
-    ).toLowerCase();
-    return msg.includes("cannot sell the last share");
-  }
-
   async buyToken(tokenAddress, amount = 1, curveIndex = 0) {
     // 买入遇到冲突直接拦截，不入队
     if (this.isTrading) {
@@ -240,20 +229,6 @@ class Trader {
       }
     } catch (error) {
       console.error(`❌ 卖出失败:`, error);
-
-      // 如果报错提示“Cannot sell the last share”，视为已无可卖持仓，记录成功并清除本地记录
-      if (this._isAlreadySoldError(error)) {
-        console.log(
-          "ℹ️  卖出提示: Cannot sell the last share -> 视为已无持仓，标记成功"
-        );
-        await this.portfolio.removeToken(tokenAddress, amount);
-        return {
-          success: true,
-          txHash: null,
-          blockNumber: null,
-          gasUsed: null,
-        };
-      }
 
       let errorMessage = error.message;
       if (error.code === "INSUFFICIENT_FUNDS") {
