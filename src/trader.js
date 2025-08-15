@@ -186,6 +186,20 @@ class Trader {
         );
         console.log(`⛽ 预估 Gas: ${gasEstimate.toString()}`);
       } catch (error) {
+        // 如果因为最后一股导致的估算报错，标记为延后卖出并返回成功（由外部买入触发再卖）
+        const msg = (error?.shortMessage || error?.message || "").toLowerCase();
+        if (msg.includes("cannot sell the last share")) {
+          await this.portfolio.markDeferredSell(tokenAddress);
+          console.log(
+            "🕒 估算提示: last share，已标记延迟卖出，等待外部买入再卖"
+          );
+          return {
+            success: true,
+            txHash: null,
+            blockNumber: null,
+            gasUsed: null,
+          };
+        }
         console.error("Gas 估算失败:", error);
         gasEstimate = 300000;
       }
@@ -197,35 +211,56 @@ class Trader {
       );
 
       // 执行卖出交易
-      const tx = await this.contract.sellShares(tokenAddress, amount, {
-        gasLimit: gasEstimate,
-        gasPrice: gasPrice.gasPrice,
-      });
+      try {
+        const tx = await this.contract.sellShares(tokenAddress, amount, {
+          gasLimit: gasEstimate,
+          gasPrice: gasPrice.gasPrice,
+        });
 
-      console.log(`📤 交易已发送: ${tx.hash}`);
-      console.log(`⏳ 等待交易确认...`);
+        console.log(`📤 交易已发送: ${tx.hash}`);
+        console.log(`⏳ 等待交易确认...`);
 
-      // 等待交易确认
-      const receipt = await tx.wait();
+        // 等待交易确认
+        const receipt = await tx.wait();
 
-      if (receipt.status === 1) {
-        console.log(`✅ 卖出成功!`);
-        console.log(`   交易哈希: ${tx.hash}`);
-        console.log(`   Gas 使用: ${receipt.gasUsed.toString()}`);
-        console.log(`   区块号: ${receipt.blockNumber}`);
+        if (receipt.status === 1) {
+          console.log(`✅ 卖出成功!`);
+          console.log(`   交易哈希: ${tx.hash}`);
+          console.log(`   Gas 使用: ${receipt.gasUsed.toString()}`);
+          console.log(`   区块号: ${receipt.blockNumber}`);
 
-        // 从持仓中移除
-        await this.portfolio.removeToken(tokenAddress, amount);
+          // 从持仓中移除
+          await this.portfolio.removeToken(tokenAddress, amount);
 
-        return {
-          success: true,
-          txHash: tx.hash,
-          blockNumber: receipt.blockNumber,
-          gasUsed: receipt.gasUsed.toString(),
-        };
-      } else {
-        console.log(`❌ 卖出失败: 交易被回滚`);
-        return { success: false, error: "交易被回滚" };
+          return {
+            success: true,
+            txHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+          };
+        } else {
+          console.log(`❌ 卖出失败: 交易被回滚`);
+          return { success: false, error: "交易被回滚" };
+        }
+      } catch (sendError) {
+        const msg = (
+          sendError?.shortMessage ||
+          sendError?.message ||
+          ""
+        ).toLowerCase();
+        if (msg.includes("cannot sell the last share")) {
+          await this.portfolio.markDeferredSell(tokenAddress);
+          console.log(
+            "🕒 发送提示: last share，已标记延迟卖出，等待外部买入再卖"
+          );
+          return {
+            success: true,
+            txHash: null,
+            blockNumber: null,
+            gasUsed: null,
+          };
+        }
+        throw sendError;
       }
     } catch (error) {
       console.error(`❌ 卖出失败:`, error);

@@ -229,8 +229,20 @@ class TokenBot {
     );
     this.periodicSellTimer = setInterval(async () => {
       try {
-        console.log("\n⏲️ 定时任务触发: 卖出所有持仓代币");
-        await this.trader.sellAllTokens();
+        console.log(
+          "\n⏲️ 定时任务触发: 卖出所有持仓代币（跳过已标记 last-share 的代币）"
+        );
+        const tokens = await this.portfolio.getAllTokens();
+        for (const token of tokens) {
+          // 跳过标记为 last-share 的代币，等待外部买入触发再卖
+          if (await this.portfolio.isDeferredSell(token)) {
+            console.log(`⏭️  跳过延迟卖出代币: ${token}`);
+            continue;
+          }
+          await this.trader.sellToken(token);
+          // 简单间隔避免 nonce 紧挨
+          await new Promise((r) => setTimeout(r, 1000));
+        }
       } catch (error) {
         console.error("定时卖出失败:", error);
       }
