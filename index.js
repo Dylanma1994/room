@@ -130,7 +130,7 @@ class TokenBot {
         return 2;
       case "5":
         // multiplier 5 对应 curveIndex 0 和 1，这里使用 0
-        return 0;
+        return 1;
       default:
         console.log(
           `⚠️  未知的 multiplier 值: ${multiplierValue}，使用默认 curveIndex: 0`

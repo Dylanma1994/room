@@ -45,7 +45,7 @@ class Trader {
       // 使用高 Gas 价格确保交易快速执行
       const feeData = await this.provider.getFeeData();
       const baseGasPrice = feeData.gasPrice;
-      const highGasPrice = (baseGasPrice * 150n) / 100n; // 提高50%的Gas价格
+      const highGasPrice = (baseGasPrice * 200n) / 100n; // 提高50%的Gas价格
 
       // 使用固定的 Gas 限制
       const gasLimit = 200000;

@@ -140,14 +140,14 @@ class ContractMonitor {
   }
 
   startHeartbeat() {
-    // 每60秒检查一次连接状态
+    // 每30秒检查一次连接状态
     this.heartbeatInterval = setInterval(() => {
       if (!this.isMonitoring) return;
 
       const now = Date.now();
       const timeSinceLastEvent = now - this.lastEventTime;
 
-      // 每60秒显示状态
+      // 每30秒显示状态
       console.log(`📊 监听中 (${Math.floor(timeSinceLastEvent / 1000)}s)`);
 
       // 如果超过2分钟没有收到事件，检查连接状态
@@ -155,7 +155,7 @@ class ContractMonitor {
         console.log("⚠️  长时间未收到事件，检查连接状态...");
         this.checkConnection();
       }
-    }, 60000);
+    }, 30000);
   }
 
   async checkConnection() {
@@ -243,6 +243,9 @@ class ContractMonitor {
           // 使用 setImmediate 确保不阻塞事件循环
           setImmediate(async () => {
             try {
+              // 等待交易确认后再处理
+              // await this.waitForTransactionConfirmation(txHash);
+
               // 传递 multiplier 作为 curveIndex
               await this.onNewToken(
                 subject,
@@ -265,6 +268,26 @@ class ContractMonitor {
     } catch (error) {
       console.error(`处理 Trade 事件失败:`, error);
       console.error(`事件数据:`, { event, tradeData });
+    }
+  }
+
+  async waitForTransactionConfirmation(txHash) {
+    try {
+      console.log(`⏳ 等待交易确认: ${txHash}`);
+
+      // 等待交易被确认
+      const receipt = await this.provider.waitForTransaction(txHash, 1); // 等待1个确认
+
+      if (receipt && receipt.status === 1) {
+        console.log(`✅ 交易已确认: ${txHash} (区块: ${receipt.blockNumber})`);
+        return receipt;
+      } else {
+        console.log(`❌ 交易失败: ${txHash}`);
+        throw new Error(`交易失败: ${txHash}`);
+      }
+    } catch (error) {
+      console.error(`❌ 等待交易确认失败: ${txHash}`, error.message);
+      throw error;
     }
   }
 
