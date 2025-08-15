@@ -86,7 +86,8 @@ class TokenBot {
         this.config.contractAddress,
         this.abi,
         this.onNewTokenDetected.bind(this),
-        this.onExternalBuyDetected.bind(this)
+        this.onExternalBuyDetected.bind(this),
+        { wsUrl: this.config.wsUrl, rpcUrl: this.config.rpcUrl }
       );
 
       await this.monitor.init();

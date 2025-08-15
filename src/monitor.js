@@ -3,12 +3,25 @@ const fs = require("fs-extra");
 const path = require("path");
 
 class ContractMonitor {
-  constructor(provider, contractAddress, abi, onNewToken, onExternalBuy) {
+  constructor(
+    provider,
+    contractAddress,
+    abi,
+    onNewToken,
+    onExternalBuy,
+    options = {}
+  ) {
     this.provider = provider;
     this.contractAddress = contractAddress;
+    this.abi = abi;
     this.contract = new ethers.Contract(contractAddress, abi, provider);
     this.onNewToken = onNewToken;
     this.onExternalBuy = onExternalBuy; // 当他人买入某代币时的回调
+
+    // 可选的重建连接参数
+    this.wsUrl = options.wsUrl || null;
+    this.rpcUrl = options.rpcUrl || null;
+
     this.isMonitoring = false;
     this.processedEvents = new Set();
     this.lastBlockFile = path.join("./data", "lastBlock.json");
@@ -142,7 +155,7 @@ class ContractMonitor {
 
   startHeartbeat() {
     // 每30秒检查一次连接状态
-    this.heartbeatInterval = setInterval(() => {
+    this.heartbeatInterval = setInterval(async () => {
       if (!this.isMonitoring) return;
 
       const now = Date.now();
@@ -151,10 +164,13 @@ class ContractMonitor {
       // 每30秒显示状态
       console.log(`📊 监听中 (${Math.floor(timeSinceLastEvent / 1000)}s)`);
 
-      // 如果超过2分钟没有收到事件，检查连接状态
-      if (timeSinceLastEvent > 120000) {
-        console.log("⚠️  长时间未收到事件，检查连接状态...");
-        this.checkConnection();
+      // 超过 30 秒无事件：先跑 checkConnection 再重连（更激进）
+      if (timeSinceLastEvent > 30000) {
+        console.log("⚠️  超过 30s 未收到事件，检查连接并重连...");
+        try {
+          await this.checkConnection();
+        } catch {}
+        this.reconnect(true);
       }
     }, 30000);
   }
@@ -174,7 +190,7 @@ class ContractMonitor {
     }
   }
 
-  async reconnect() {
+  async reconnect(forceRecreate = false) {
     try {
       console.log("🔄 重新建立连接...");
 
@@ -186,6 +202,19 @@ class ContractMonitor {
       // 移除旧的监听器
       this.contract.removeAllListeners("Trade");
       this.provider.removeAllListeners();
+
+      // 可选：在 wss 断开长时间无事件时，重建 provider/contract
+      if (forceRecreate && this.wsUrl) {
+        try {
+          this.provider?.destroy?.();
+        } catch {}
+        this.provider = new ethers.WebSocketProvider(this.wsUrl);
+        this.contract = new ethers.Contract(
+          this.contractAddress,
+          this.abi,
+          this.provider
+        );
+      }
 
       // 重新设置监听器
       this.setupEventListener();
@@ -199,7 +228,7 @@ class ContractMonitor {
         this.isMonitoring &&
         this.reconnectAttempts < this.maxReconnectAttempts
       ) {
-        setTimeout(() => this.reconnect(), 10000);
+        setTimeout(() => this.reconnect(forceRecreate), 10000);
       }
     }
   }
