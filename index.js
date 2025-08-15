@@ -40,14 +40,9 @@ class TokenBot {
       // 验证配置
       this.validateConfig();
 
-      // 创建 provider - 优先使用 WebSocket 连接
-      if (this.config.wsUrl) {
-        console.log(`🔌 使用 WebSocket 连接: ${this.config.wsUrl}`);
-        this.provider = new ethers.WebSocketProvider(this.config.wsUrl);
-      } else {
-        console.log(`🔌 使用 HTTP 连接: ${this.config.rpcUrl}`);
-        this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
-      }
+      // 创建交易用 provider：固定使用 HTTP（JsonRpcProvider）
+      console.log(`🔌 交易使用 HTTP 连接: ${this.config.rpcUrl}`);
+      this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
 
       // 测试连接
       const network = await this.provider.getNetwork();

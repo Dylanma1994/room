@@ -35,6 +35,24 @@ class ContractMonitor {
     // 确保数据目录存在
     await fs.ensureDir("./data");
 
+    // 如果提供了 wsUrl，则为监控单独创建一个 WebSocketProvider，避免影响交易用的 provider
+    if (this.wsUrl) {
+      try {
+        this.provider = new ethers.WebSocketProvider(this.wsUrl);
+        this.contract = new ethers.Contract(
+          this.contractAddress,
+          this.abi,
+          this.provider
+        );
+        console.log("🔌 监控使用独立的 WebSocketProvider");
+      } catch (e) {
+        console.error(
+          "创建独立 WebSocketProvider 失败，回退到传入的 provider:",
+          e?.message || e
+        );
+      }
+    }
+
     // 加载上次处理的区块号
     this.lastProcessedBlock = await this.loadLastBlock();
   }
