@@ -140,24 +140,22 @@ class ContractMonitor {
   }
 
   startHeartbeat() {
-    // 每30秒检查一次连接状态
+    // 每60秒检查一次连接状态
     this.heartbeatInterval = setInterval(() => {
       if (!this.isMonitoring) return;
 
       const now = Date.now();
       const timeSinceLastEvent = now - this.lastEventTime;
 
-      // 每30秒显示状态
-      console.log(
-        `📊 监听状态: 最后事件 ${Math.floor(timeSinceLastEvent / 1000)} 秒前`
-      );
+      // 每60秒显示状态
+      console.log(`📊 监听中 (${Math.floor(timeSinceLastEvent / 1000)}s)`);
 
       // 如果超过2分钟没有收到事件，检查连接状态
       if (timeSinceLastEvent > 120000) {
         console.log("⚠️  长时间未收到事件，检查连接状态...");
         this.checkConnection();
       }
-    }, 30000);
+    }, 60000);
   }
 
   async checkConnection() {
@@ -245,7 +243,13 @@ class ContractMonitor {
           // 使用 setImmediate 确保不阻塞事件循环
           setImmediate(async () => {
             try {
-              await this.onNewToken(subject, txHash, blockNumber || 0);
+              // 传递 multiplier 作为 curveIndex
+              await this.onNewToken(
+                subject,
+                txHash,
+                blockNumber || 0,
+                tradeData.multiplier
+              );
             } catch (error) {
               console.error("处理新代币时出错:", error);
             }

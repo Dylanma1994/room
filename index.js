@@ -119,12 +119,37 @@ class TokenBot {
     }
   }
 
-  async onNewTokenDetected(tokenAddress, txHash, blockNumber) {
+  // 将 multiplier 转换为 curveIndex
+  multiplierToCurveIndex(multiplier) {
+    const multiplierValue = multiplier.toString();
+
+    switch (multiplierValue) {
+      case "20":
+        return 3;
+      case "10":
+        return 2;
+      case "5":
+        // multiplier 5 对应 curveIndex 0 和 1，这里使用 0
+        return 0;
+      default:
+        console.log(
+          `⚠️  未知的 multiplier 值: ${multiplierValue}，使用默认 curveIndex: 0`
+        );
+        return 0; // 默认使用 curveIndex 0 (对应 multiplier 5)
+    }
+  }
+
+  async onNewTokenDetected(tokenAddress, txHash, blockNumber, multiplier) {
     try {
       console.log(`\n🎉 检测到新代币创建!`);
       console.log(`   代币地址: ${tokenAddress}`);
       console.log(`   创建交易: ${txHash}`);
       console.log(`   区块号: ${blockNumber}`);
+      console.log(`   Multiplier: ${multiplier}`);
+
+      // 根据 multiplier 计算 curveIndex
+      const curveIndex = this.multiplierToCurveIndex(multiplier);
+      console.log(`   CurveIndex: ${curveIndex}`);
 
       // 检查是否启用自动买入
       if (!this.config.autoBuy) {
@@ -139,7 +164,11 @@ class TokenBot {
       const buyAmount = this.config.autoBuyAmount || 1;
       console.log(`🛒 开始自动买入代币，数量: ${buyAmount}`);
 
-      const result = await this.trader.buyToken(tokenAddress, buyAmount, 0);
+      const result = await this.trader.buyToken(
+        tokenAddress,
+        buyAmount,
+        curveIndex
+      );
 
       if (result.success) {
         console.log(`🎊 自动买入成功!`);

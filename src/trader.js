@@ -13,35 +13,21 @@ class Trader {
   async buyToken(tokenAddress, amount = 1, curveIndex = 0) {
     if (this.isTrading) {
       console.log("⚠️  交易正在进行中，请稍后...");
-      return false;
+      return { success: false, error: "交易正在进行中，请稍后" };
     }
 
     this.isTrading = true;
 
     try {
-      console.log(`🛒 准备买入代币:`);
-      console.log(`   代币地址: ${tokenAddress}`);
-      console.log(`   数量: ${amount}`);
-      console.log(`   曲线索引: ${curveIndex}`);
-
-      // 调试：检查合约方法
-      console.log(`🔧 调试信息:`);
-      console.log(`   合约地址: ${this.contract.target}`);
-      console.log(`   buyShares 方法存在: ${!!this.contract.buyShares}`);
-      console.log(`   interface 存在: ${!!this.contract.interface}`);
-      if (this.contract.interface && this.contract.interface.functions) {
-        console.log(
-          `   合约方法数量: ${
-            Object.keys(this.contract.interface.functions).length
-          }`
-        );
-      }
+      console.log(
+        `🛒 买入代币: ${tokenAddress} (数量: ${amount}, 曲线: ${curveIndex})`
+      );
 
       // 检查钱包余额
       const balance = await this.wallet.provider.getBalance(
         this.wallet.address
       );
-      console.log(`💰 钱包余额: ${ethers.formatEther(balance)} ETH`);
+      console.log(`💰 余额: ${ethers.formatEther(balance)} ETH`);
 
       // 获取买入价格
       // let buyPrice;
@@ -61,39 +47,53 @@ class Trader {
       const baseGasPrice = feeData.gasPrice;
       const highGasPrice = (baseGasPrice * 150n) / 100n; // 提高50%的Gas价格
 
-      console.log(
-        `💨 基础 Gas Price: ${ethers.formatUnits(baseGasPrice, "gwei")} Gwei`
-      );
-      console.log(
-        `💨 使用 Gas Price: ${ethers.formatUnits(highGasPrice, "gwei")} Gwei`
-      );
-
       // 使用固定的 Gas 限制
-      const gasLimit = 200000; // 进一步增加 Gas 限制
-      console.log(`⛽ 使用 Gas 限制: ${gasLimit}`);
-
-      // 执行买入交易
-      const tx = await this.contract.buyShares(
-        tokenAddress,
-        amount,
-        curveIndex,
-        {
-          gasLimit: gasLimit,
-          gasPrice: highGasPrice,
-        }
+      const gasLimit = 200000;
+      console.log(
+        `⛽ Gas: ${ethers.formatUnits(
+          highGasPrice,
+          "gwei"
+        )} Gwei, 限制: ${gasLimit}`
       );
 
-      console.log(`📤 交易已发送: ${tx.hash}`);
-      console.log(`⏳ 等待交易确认...`);
+      // 确保参数类型正确
+      const validTokenAddress = ethers.getAddress(tokenAddress);
+      const validAmount = BigInt(amount);
+      const validCurveIndex = BigInt(curveIndex);
+
+      // 编码交易数据
+      let encodedData;
+      try {
+        encodedData = this.contract.interface.encodeFunctionData("buyShares", [
+          validTokenAddress,
+          validAmount,
+          validCurveIndex,
+        ]);
+      } catch (encodeError) {
+        console.error("❌ 交易数据编码失败:", encodeError);
+        return {
+          success: false,
+          error: `交易数据编码失败: ${encodeError.message}`,
+        };
+      }
+
+      // 构建并发送交易
+      const txData = {
+        to: this.contractAddress,
+        data: encodedData,
+        gasLimit: gasLimit,
+        gasPrice: highGasPrice,
+      };
+
+      const tx = await this.wallet.sendTransaction(txData);
+
+      console.log(`📤 交易发送: ${tx.hash}`);
 
       // 等待交易确认
       const receipt = await tx.wait();
 
       if (receipt.status === 1) {
-        console.log(`✅ 买入成功!`);
-        console.log(`   交易哈希: ${tx.hash}`);
-        console.log(`   Gas 使用: ${receipt.gasUsed.toString()}`);
-        console.log(`   区块号: ${receipt.blockNumber}`);
+        console.log(`✅ 买入成功! Gas: ${receipt.gasUsed.toString()}`);
 
         // 添加到持仓
         await this.portfolio.addToken(
@@ -133,7 +133,7 @@ class Trader {
   async sellToken(tokenAddress, amount = null) {
     if (this.isTrading) {
       console.log("⚠️  交易正在进行中，请稍后...");
-      return false;
+      return { success: false, error: "交易正在进行中，请稍后" };
     }
 
     this.isTrading = true;
