@@ -47,14 +47,7 @@ class Trader {
       const baseGasPrice = feeData.gasPrice;
       const highGasPrice = (baseGasPrice * 200n) / 100n; // 提高50%的Gas价格
 
-      // 使用固定的 Gas 限制
-      const gasLimit = 200000;
-      console.log(
-        `⛽ Gas: ${ethers.formatUnits(
-          highGasPrice,
-          "gwei"
-        )} Gwei, 限制: ${gasLimit}`
-      );
+      console.log(`⛽ Gas: ${ethers.formatUnits(highGasPrice, "gwei")} Gwei`);
 
       // 确保参数类型正确
       const validTokenAddress = ethers.getAddress(tokenAddress);
@@ -81,7 +74,6 @@ class Trader {
       const txData = {
         to: this.contractAddress,
         data: encodedData,
-        gasLimit: gasLimit,
         gasPrice: highGasPrice,
       };
 
