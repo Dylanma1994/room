@@ -23,32 +23,6 @@ class Trader {
         `🛒 买入代币: ${tokenAddress} (数量: ${amount}, 曲线: ${curveIndex})`
       );
 
-      // 检查钱包余额
-      const balance = await this.wallet.provider.getBalance(
-        this.wallet.address
-      );
-      console.log(`💰 余额: ${ethers.formatEther(balance)} ETH`);
-
-      // 获取买入价格
-      // let buyPrice;
-      // try {
-      //   buyPrice = await this.contract.getBuyPriceAfterFee(
-      //     tokenAddress,
-      //     amount
-      //   );
-      //   console.log(`💰 买入价格: ${buyPrice.toString()} wei`);
-      // } catch (error) {
-      //   console.error("获取买入价格失败:", error);
-      //   return { success: false, error: "无法获取买入价格" };
-      // }
-
-      // 使用高 Gas 价格确保交易快速执行
-      const feeData = await this.provider.getFeeData();
-      const baseGasPrice = feeData.gasPrice;
-      const highGasPrice = (baseGasPrice * 200n) / 100n; // 提高50%的Gas价格
-
-      console.log(`⛽ Gas: ${ethers.formatUnits(highGasPrice, "gwei")} Gwei`);
-
       // 确保参数类型正确
       const validTokenAddress = ethers.getAddress(tokenAddress);
       const validAmount = BigInt(amount);
@@ -70,11 +44,10 @@ class Trader {
         };
       }
 
-      // 构建并发送交易
+      // 构建并发送交易 (使用 EIP-1559)
       const txData = {
         to: this.contractAddress,
         data: encodedData,
-        gasPrice: highGasPrice,
       };
 
       const tx = await this.wallet.sendTransaction(txData);
