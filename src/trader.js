@@ -7,10 +7,17 @@ class Trader {
     this.contractAddress = contractAddress;
     this.contract = new ethers.Contract(contractAddress, abi, wallet);
     this.portfolio = portfolio;
+
+    // 卖出队列（串行）
+    this.sellQueue = [];
+    this.isProcessingSellQueue = false;
+
+    // 当前是否有交易在进行（用于买入冲突拦截、卖出串行）
     this.isTrading = false;
   }
 
   async buyToken(tokenAddress, amount = 1, curveIndex = 0) {
+    // 买入遇到冲突直接拦截，不入队
     if (this.isTrading) {
       console.log("⚠️  交易正在进行中，请稍后...");
       return { success: false, error: "交易正在进行中，请稍后" };
@@ -96,24 +103,69 @@ class Trader {
   }
 
   async sellToken(tokenAddress, amount = null) {
-    if (this.isTrading) {
-      console.log("⚠️  交易正在进行中，请稍后...");
-      return { success: false, error: "交易正在进行中，请稍后" };
-    }
+    // 入队卖出请求；队列会串行执行，避免 nonce 冲突
+    return await new Promise(async (resolve) => {
+      // 简要记录当前请求（不做强校验，实际执行时再次校验）
+      this.sellQueue.push({ tokenAddress, amount, resolve });
+      this._processSellQueue();
+    });
+  }
 
-    this.isTrading = true;
+  async _processSellQueue() {
+    if (this.isProcessingSellQueue) return;
+    this.isProcessingSellQueue = true;
 
     try {
-      // 如果没有指定数量，卖出全部
-      if (amount === null) {
-        amount = await this.portfolio.getTokenAmount(tokenAddress);
-        if (amount === 0) {
-          console.log(`⚠️  没有持有该代币: ${tokenAddress}`);
-          return { success: false, error: "没有持有该代币" };
-        }
-        console.log(`🔄 准备卖出全部代币: ${amount}`);
-      }
+      while (this.sellQueue.length > 0) {
+        const job = this.sellQueue.shift();
+        const { tokenAddress } = job;
+        let { amount } = job;
 
+        try {
+          // 计算实际卖出数量
+          if (amount === null) {
+            amount = await this.portfolio.getTokenAmount(tokenAddress);
+            if (!amount || amount <= 0) {
+              console.log(`⚠️  没有持有该代币: ${tokenAddress}`);
+              job.resolve({ success: false, error: "没有持有该代币" });
+              continue;
+            }
+            console.log(`🔄 准备卖出全部代币: ${amount}`);
+          }
+
+          // 如果有交易在进行（买入或其他卖出），等待其完成
+          if (this.isTrading) {
+            // 将当前任务插回队列尾部，并稍后再试
+            this.sellQueue.push({ tokenAddress, amount, resolve: job.resolve });
+            // 避免忙等，稍作等待
+            await new Promise((r) => setTimeout(r, 500));
+            continue;
+          }
+
+          // 设置交易进行中标志（供买入冲突拦截）
+          this.isTrading = true;
+
+          const result = await this._performSell(tokenAddress, amount);
+          job.resolve(result);
+        } catch (error) {
+          console.error("❌ 队列卖出执行出错:", error);
+          job.resolve({
+            success: false,
+            error: error.message || String(error),
+          });
+        } finally {
+          this.isTrading = false;
+          // 并给下一个任务一点点间隔，避免 nonce 紧挨
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+    } finally {
+      this.isProcessingSellQueue = false;
+    }
+  }
+
+  async _performSell(tokenAddress, amount) {
+    try {
       console.log(`💸 准备卖出代币:`);
       console.log(`   代币地址: ${tokenAddress}`);
       console.log(`   数量: ${amount}`);
@@ -184,8 +236,6 @@ class Trader {
       }
 
       return { success: false, error: errorMessage };
-    } finally {
-      this.isTrading = false;
     }
   }
 
