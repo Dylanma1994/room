@@ -68,12 +68,35 @@ class Trader {
         ? (fee.maxFeePerGas * boostScaled) / scale
         : null;
 
+      // 整理费率并确保 maxFee >= priorityFee
+      let finalTip = tipOverride;
+      let finalMaxFee = maxFeeOverride;
+
+      if (!finalTip && fee.maxPriorityFeePerGas) {
+        finalTip = (fee.maxPriorityFeePerGas * boostScaled) / scale;
+      }
+      if (!finalMaxFee && fee.maxFeePerGas) {
+        finalMaxFee = (fee.maxFeePerGas * boostScaled) / scale;
+      }
+      if (!finalMaxFee && fee.gasPrice) {
+        finalMaxFee = fee.gasPrice;
+      }
+      if (!finalTip && fee.gasPrice) {
+        finalTip = fee.gasPrice / 2n;
+      }
+      if (finalTip && finalMaxFee && finalMaxFee <= finalTip) {
+        finalMaxFee = finalTip * 2n; // 至少为 tip 的 2 倍
+      }
+      if (!finalMaxFee && finalTip) {
+        finalMaxFee = finalTip * 2n;
+      }
+
       const txData = {
         to: this.contractAddress,
         data: encodedData,
         gasLimit: this.config.buyGasLimit || 250000,
-        ...(tipOverride ? { maxPriorityFeePerGas: tipOverride } : {}),
-        ...(maxFeeOverride ? { maxFeePerGas: maxFeeOverride } : {}),
+        ...(finalTip ? { maxPriorityFeePerGas: finalTip } : {}),
+        ...(finalMaxFee ? { maxFeePerGas: finalMaxFee } : {}),
         ...(this.config.usePendingNonce
           ? {
               nonce: await this.provider.getTransactionCount(

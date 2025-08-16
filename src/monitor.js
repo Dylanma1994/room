@@ -270,7 +270,7 @@ class ContractMonitor {
       }
       this.processedEvents.add(eventId);
 
-      const { subject, isBuy, supply } = tradeData;
+      const { subject, isBuy, supply, shareAmount, tokenAmount } = tradeData;
 
       // 简化日志，只记录关键决策信息
       if (isBuy) {
@@ -279,11 +279,23 @@ class ContractMonitor {
         } else {
           // 仅在买入时简要记录
           console.log(
-            `🟢 侦测到买入: ${subject} (供应量=${supply.toString()})`
+            `🟢 侦测到买入: ${subject} (shares=${
+              shareAmount?.toString?.() || shareAmount
+            }, tokens=${
+              tokenAmount?.toString?.() || tokenAmount
+            }, 供应量=${supply.toString()})`
           );
         }
+      } else {
+        // 简要记录卖出事件
+        console.log(
+          `🔴 侦测到卖出: ${subject} (shares=${
+            shareAmount?.toString?.() || shareAmount
+          }, tokens=${
+            tokenAmount?.toString?.() || tokenAmount
+          }, 供应量=${supply.toString()})`
+        );
       }
-      // 卖出事件不记录，减少日志噪音
 
       // 检查是否是新代币创建 (仅判断 supply=1)
       if (isBuy && supply.toString() === "1") {
