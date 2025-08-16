@@ -121,6 +121,8 @@ class SqliteCandidateStore {
       "ignoredAt",
       "lastError",
       "addressChecksum",
+      "backroomAttempts",
+      "twitterAttempts",
     ];
     const fields = [];
     const values = [];
@@ -181,7 +183,15 @@ class SqliteCandidateStore {
       boughtAt: row.boughtAt,
       ignoredAt: row.ignoredAt,
       lastError: row.lastError,
+      backroomAttempts: row.backroomAttempts,
+      twitterAttempts: row.twitterAttempts,
     };
+  }
+
+  removeCandidate(address) {
+    const stmt = this.db.prepare("DELETE FROM candidates WHERE address = ?");
+    const info = stmt.run(String(address).toLowerCase());
+    return info.changes > 0;
   }
 }
 
