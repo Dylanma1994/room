@@ -54,14 +54,18 @@ class Trader {
 
       // 构建并发送交易 (使用 EIP-1559)
       const fee = await this.provider.getFeeData();
-      const boost = Number(this.config.gasBoostMultiplier || 1);
+      const boost = Number(this.config.gasBoostMultiplier ?? 1);
+      const scale = 10000n; // 4 位小数精度
+      const boostScaled = BigInt(
+        Math.floor(Math.max(1, boost) * Number(scale))
+      );
       const tipOverride = this.config.gasTipGwei
         ? ethers.parseUnits(String(this.config.gasTipGwei), "gwei")
         : fee.maxPriorityFeePerGas
-        ? fee.maxPriorityFeePerGas * BigInt(Math.max(1, boost))
+        ? (fee.maxPriorityFeePerGas * boostScaled) / scale
         : null;
       const maxFeeOverride = fee.maxFeePerGas
-        ? fee.maxFeePerGas * BigInt(Math.max(1, boost))
+        ? (fee.maxFeePerGas * boostScaled) / scale
         : null;
 
       const txData = {
