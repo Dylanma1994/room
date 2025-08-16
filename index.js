@@ -3,6 +3,8 @@ const fs = require("fs-extra");
 const ContractMonitor = require("./src/monitor");
 const Portfolio = require("./src/portfolio");
 const Trader = require("./src/trader");
+const TokenScanner = require("./src/scanner");
+const SqliteCandidateStore = require("./src/candidatesSqlite");
 
 class TokenBot {
   constructor() {
@@ -10,6 +12,7 @@ class TokenBot {
     this.abiFile = "./abi/contract.json";
     this.isRunning = false;
     this.periodicSellTimer = null; // 定时卖出计时器句柄
+    this.scanner = null; // 候选扫描器
   }
 
   async loadConfig() {
@@ -66,6 +69,12 @@ class TokenBot {
       this.portfolio = new Portfolio();
       await this.portfolio.init();
 
+      // 候选存储：仅使用 SQLite
+      this.candidates = new SqliteCandidateStore({
+        dbPath: this.config.candidateDbPath || "./data/candidates.db",
+      });
+      await this.candidates.init();
+
       // 创建 trader
       this.trader = new Trader(
         this.provider,
@@ -88,10 +97,19 @@ class TokenBot {
 
       await this.monitor.init();
 
+      // 启动扫描器
+      this.scanner = new TokenScanner({
+        trader: this.trader,
+        candidateStore: this.candidates,
+        config: this.config,
+      });
+
       console.log("✅ 初始化完成");
       console.log(`📍 监控合约: ${this.config.contractAddress}`);
-      console.log(`🎯 目标: 监控 curveIndex=1 的 buyShares 交易`);
-      console.log(`💰 自动买入数量: ${this.config.autoBuyAmount || 1}`);
+      console.log(`🧪 扫描间隔: ${this.config.scannerIntervalMs || 5000} ms`);
+      console.log(
+        `🔑 Twitter API Key 已配置: ${this.config.twitterApiKey ? "是" : "否"}`
+      );
     } catch (error) {
       console.error("❌ 初始化失败:", error);
       process.exit(1);
@@ -149,32 +167,15 @@ class TokenBot {
       const curveIndex = this.multiplierToCurveIndex(multiplier);
       console.log(`   CurveIndex: ${curveIndex}`);
 
-      // 检查是否启用自动买入
-      if (!this.config.autoBuy) {
-        console.log("⚠️  自动买入已禁用，跳过买入");
-        return;
-      }
-
-      // 立即买入，不等待确认以获得最快速度
-      console.log("⚡ 立即执行买入，争取最快速度...");
-
-      // 执行自动买入
-      const buyAmount = this.config.autoBuyAmount || 1;
-      console.log(`🛒 开始自动买入代币，数量: ${buyAmount}`);
-
-      const result = await this.trader.buyToken(
-        tokenAddress,
-        buyAmount,
-        curveIndex
-      );
-
-      if (result.success) {
-        console.log(`🎊 自动买入成功!`);
-        console.log(`   买入交易: ${result.txHash}`);
-        console.log(`   Gas 使用: ${result.gasUsed}`);
-      } else {
-        console.log(`❌ 自动买入失败: ${result.error}`);
-      }
+      // 新逻辑：不直接买入，加入候选列表供扫描器处理
+      await this.candidates.addCandidate({
+        address: tokenAddress,
+        curveIndex,
+        multiplier,
+        txHash,
+        createdAt: Date.now(),
+      });
+      console.log("📝 已加入候选代币列表，等待扫描器评估: ", tokenAddress);
     } catch (error) {
       console.error("❌ 处理新代币时出错:", error);
     }
@@ -217,43 +218,16 @@ class TokenBot {
     }
   }
 
-  setupPeriodicSell() {
-    if (this.periodicSellTimer) {
-      clearInterval(this.periodicSellTimer);
-      this.periodicSellTimer = null;
-    }
-    if (!this.config.autoSellIntervalMinutes) return;
-    const intervalMs =
-      Math.max(1, Number(this.config.autoSellIntervalMinutes)) * 60 * 1000;
-    console.log(
-      `⏲️ 已开启定时卖出: 每 ${this.config.autoSellIntervalMinutes} 分钟卖出所有代币`
-    );
-    this.periodicSellTimer = setInterval(async () => {
-      try {
-        console.log(
-          "\n⏲️ 定时任务触发: 卖出所有持仓代币（跳过已标记 last-share 的代币）"
-        );
-        const tokens = await this.portfolio.getAllTokens();
-        for (const token of tokens) {
-          // 跳过标记为 last-share 的代币，等待外部买入触发再卖
-          if (await this.portfolio.isDeferredSell(token)) {
-            console.log(`⏭️  跳过延迟卖出代币: ${token}`);
-            continue;
-          }
-          await this.trader.sellToken(token);
-          // 简单间隔避免 nonce 紧挨
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      } catch (error) {
-        console.error("定时卖出失败:", error);
-      }
-    }, intervalMs);
-  }
+  // 已移除: 定时卖出所有功能
 
   async start() {
     if (this.isRunning) {
       console.log("⚠️  机器人已在运行中");
       return;
+    }
+
+    if (!this.config.twitterApiKey) {
+      console.log("⚠️ 未配置 twitterApiKey，扫描器将无法评估推特条件");
     }
 
     console.log("\n🤖 启动代币交易机器人...");
@@ -265,8 +239,8 @@ class TokenBot {
     // 启动监控
     await this.monitor.startMonitoring();
 
-    // 启动定时卖出（如果配置）
-    this.setupPeriodicSell();
+    // 启动扫描器
+    if (this.scanner) await this.scanner.start();
 
     // 设置优雅退出
     this.setupGracefulShutdown();

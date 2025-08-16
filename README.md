@@ -5,10 +5,12 @@
 ## 功能特性
 
 - 🔍 **实时监控**: 监控指定合约的 Trade 事件
-- 🎯 **智能筛选**: 自动识别新代币创建（supply=1, multiplier=1）
-- 🛒 **自动买入**: 检测到新代币时自动买入指定数量
+- 🎯 **智能识别**: 自动识别新代币创建（supply=1）
+- 📝 **候选入库**: 新盘不直接买入，先入库候选（支持 JSON 或 SQLite 持久化）
+- 🤖 **扫描评估**: 扫描器调用 Backroom + Twitter，粉丝 > 1 万且蓝 V 时自动买入 5 个
 - 💸 **灵活卖出**: 支持单个代币卖出和一键卖出所有持仓
 - 📊 **持仓管理**: 自动记录和管理代币持仓信息
+- 🛠️ **CLI 工具**: 提供候选状态查询/筛选脚本
 
 ## 安装
 
@@ -18,25 +20,33 @@
 npm install
 ```
 
-2. 复制配置文件并填写配置：
-
-```bash
-cp config.example.json config.json
-```
-
-3. 编辑 `config.json` 文件，填入你的配置信息：
+2. 创建并编辑 `config.json` 文件，填入你的配置信息（示例）：
 
 ```json
 {
   "network": "Base Mainnet",
-  "rpcUrl": "https://api.zan.top/node/v1/base/mainnet/c3dee4735db145f5aa89e2b5cec1d2bd",
-  "wsUrl": "wss://api.zan.top/node/ws/v1/base/mainnet/c3dee4735db145f5aa89e2b5cec1d2bd",
+  "rpcUrl": "https://your-rpc",
+  "wsUrl": "wss://your-ws",
   "contractAddress": "0xbBc7b45150715C06E86964De98562c1171bA408b",
-  "privateKey": "你的私钥",
-  "autoBuy": true,
-  "autoBuyAmount": 1
+  "privateKey": "你的私钥(0x...)",
+
+  "candidateStore": "sqlite",
+  "candidateDbPath": "./data/candidates.db",
+
+  "twitterApiKey": "你的 Twitter API Key",
+  "scannerIntervalMs": 5000,
+
+  "autoSellOnOthersBuy": true,
+  "autoSellIntervalMinutes": 3,
+
+  "usePendingNonce": true,
+  "buyGasLimit": 250000,
+  "gasBoostMultiplier": 1.3,
+  "gasTipGwei": 2
 }
 ```
+
+> 说明：旧的 `autoBuy`/`autoBuyAmount` 已不再生效（兼容保留），新逻辑由扫描器基于 Twitter 条件决定是否买入。
 
 **注意**: 配置了 `wsUrl` 时会优先使用 WebSocket 连接以获得最快的事件响应速度。
 
@@ -52,7 +62,8 @@ node index.js
 
 - 连接到 Base 网络
 - 开始监控指定合约
-- 当检测到新代币创建时自动买入
+- 检测到新代币创建时，将代币信息入库（候选）
+- 扫描器轮询 Backroom 与 Twitter，满足条件（粉丝>1w 且蓝 V）时自动买入 5 个
 - 显示实时日志信息
 
 ### 卖出代币
@@ -87,37 +98,49 @@ node sell.js sa
 node sell.js help
 ```
 
-## 配置说明
+## 配置说明（关键字段）
 
-| 字段              | 说明                   | 必填 |
-| ----------------- | ---------------------- | ---- |
-| `network`         | 网络名称（仅用于显示） | 否   |
-| `rpcUrl`          | HTTP RPC 节点地址      | 是   |
-| `wsUrl`           | WebSocket 节点地址     | 否   |
-| `contractAddress` | 要监控的合约地址       | 是   |
-| `privateKey`      | 钱包私钥               | 是   |
-| `autoBuy`         | 是否启用自动买入       | 否   |
-| `autoBuyAmount`   | 自动买入数量           | 否   |
+| 字段                      | 说明                                   | 必填 |
+| ------------------------- | -------------------------------------- | ---- |
+| `network`                 | 网络名称（仅用于显示）                 | 否   |
+| `rpcUrl`                  | HTTP RPC 节点地址                      | 是   |
+| `wsUrl`                   | WebSocket 节点地址                     | 否   |
+| `contractAddress`         | 要监控的合约地址                       | 是   |
+| `privateKey`              | 钱包私钥                               | 是   |
+| `candidateStore`          | 候选存储方式：`sqlite` 或留空使用 JSON | 否   |
+| `candidateDbPath`         | SQLite 数据库路径（`sqlite` 时生效）   | 否   |
+| `twitterApiKey`           | Twitter API Key（扫描器评估必须）      | 是   |
+| `scannerIntervalMs`       | 扫描器单轮间隔（毫秒），默认 5000      | 否   |
+| `autoSellOnOthersBuy`     | 当他人买入我们持有代币时是否自动卖出   | 否   |
+| `autoSellIntervalMinutes` | 周期性卖出全部持仓的间隔（分钟）       | 否   |
+| `usePendingNonce`         | 使用 pending nonce                     | 否   |
+| `buyGasLimit`             | 买入交易 gasLimit                      | 否   |
+| `gasBoostMultiplier`      | EIP-1559 费率提升倍数                  | 否   |
+| `gasTipGwei`              | 指定 tip（gwei），为空则按当前网络计算 | 否   |
 
 ## 文件结构
 
 ```
-├── index.js              # 主程序入口
-├── sell.js               # 卖出命令工具
-├── config.json           # 配置文件（需要创建）
-├── config.example.json   # 配置文件示例
-├── README.md             # 说明文档
+├── index.js               # 主程序入口
+├── sell.js                # 卖出命令工具
+├── config.json            # 配置文件（需要创建）
+├── README.md              # 说明文档
 ├── abi/
-│   └── contract.json     # 合约 ABI 定义
+│   └── contract.json      # 合约 ABI 定义
 ├── src/
-│   ├── monitor.js        # 合约监控模块
-│   ├── trader.js         # 交易执行模块
-│   ├── portfolio.js      # 持仓管理模块
-│   └── sellCommand.js    # 卖出命令模块
+│   ├── monitor.js         # 合约监控模块
+│   ├── trader.js          # 交易执行模块
+│   ├── portfolio.js       # 持仓管理模块
+│   ├── candidates.js      # 候选存储(JSON)
+│   ├── candidatesSqlite.js# 候选存储(SQLite)
+│   └── sellCommand.js     # 卖出命令模块
+├── scripts/
+│   ├── candidates_cli.js  # 候选状态 CLI（SQLite）
+│   └── smoke_scanner.js   # 扫描器冒烟测试
 └── data/
-    ├── portfolio.json    # 持仓数据（自动生成）
-    ├── lastBlock.json    # 最后处理的区块号（自动生成）
-    └── notifications.log # 通知日志（自动生成）
+    ├── portfolio.json     # 持仓数据（自动生成）
+    ├── lastBlock.json     # 最后处理的区块号（自动生成）
+    └── candidates.db      # 候选 SQLite 数据库（自动生成）
 ```
 
 ## 工作原理
@@ -177,6 +200,16 @@ node sell.js help
 3. **监控中断**：
    - 程序会自动从上次停止的区块继续
    - 检查 `data/lastBlock.json` 文件
+
+### CLI：候选状态查询（SQLite）
+
+- 帮助
+  - `node scripts/candidates_cli.js --help`
+- 常用示例
+  - `node scripts/candidates_cli.js --status pending`
+  - `node scripts/candidates_cli.js --status bought --limit 10 --desc`
+  - `node scripts/candidates_cli.js --twitter mdrafo --status pending,error`
+  - `node scripts/candidates_cli.js --address 0x3bb9A --db ./data/candidates.db`
 
 ### 日志说明
 
