@@ -107,6 +107,17 @@ class Trader {
           : {}),
       };
 
+      // 打印提交时的费率参数（对照他人提交的费率）
+      const tipGweiLog = txData.maxPriorityFeePerGas
+        ? ethers.formatUnits(txData.maxPriorityFeePerGas, "gwei")
+        : "-";
+      const maxFeeGweiLog = txData.maxFeePerGas
+        ? ethers.formatUnits(txData.maxFeePerGas, "gwei")
+        : "-";
+      console.log(
+        `🧾 提交费率: maxPriority=${tipGweiLog} gwei, maxFee=${maxFeeGweiLog} gwei, gasLimit=${txData.gasLimit}`
+      );
+
       const tx = await this.wallet.sendTransaction(txData);
 
       console.log(`📤 交易发送: ${tx.hash}`);
@@ -115,7 +126,15 @@ class Trader {
       const receipt = await tx.wait();
 
       if (receipt.status === 1) {
-        console.log(`✅ 买入成功! Gas: ${receipt.gasUsed.toString()}`);
+        const effPrice = receipt.effectiveGasPrice ?? 0n;
+        const gasUsed = receipt.gasUsed ?? 0n;
+        const priceGwei = ethers.formatUnits(effPrice, "gwei");
+        const costEth = ethers.formatEther(gasUsed * effPrice);
+        console.log(
+          `✅ 买入成功! tx=${tx.hash}, 区块=${
+            receipt.blockNumber
+          }, gasUsed=${gasUsed.toString()}, gasPrice=${priceGwei} gwei, cost=${costEth} ETH`
+        );
 
         // 添加到持仓
         await this.portfolio.addToken(
@@ -129,7 +148,9 @@ class Trader {
           success: true,
           txHash: tx.hash,
           blockNumber: receipt.blockNumber,
-          gasUsed: receipt.gasUsed.toString(),
+          gasUsed: gasUsed.toString(),
+          gasPriceGwei: priceGwei,
+          gasCostEth: costEth,
         };
       } else {
         console.log(`❌ 买入失败: 交易被回滚`);

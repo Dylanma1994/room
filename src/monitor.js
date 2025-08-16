@@ -262,7 +262,9 @@ class ContractMonitor {
       const txHash =
         event?.log?.transactionHash || event?.transactionHash || "unknown";
       const blockNumber = event?.log?.blockNumber || event?.blockNumber;
-      const eventId = `${txHash}-${event?.log?.index || 0}`;
+      const txIndex = event?.log?.transactionIndex;
+      const logIndex = event?.log?.index || event?.log?.logIndex || 0;
+      const eventId = `${txHash}-${logIndex}`;
 
       // 避免重复处理
       if (this.processedEvents.has(eventId)) {
@@ -270,7 +272,8 @@ class ContractMonitor {
       }
       this.processedEvents.add(eventId);
 
-      const { subject, isBuy, supply, shareAmount, tokenAmount } = tradeData;
+      const { subject, isBuy, supply, shareAmount, tokenAmount, trader } =
+        tradeData;
 
       // 简化日志，只记录关键决策信息
       if (isBuy) {
@@ -279,7 +282,9 @@ class ContractMonitor {
         } else {
           // 仅在买入时简要记录
           console.log(
-            `🟢 侦测到买入: ${subject} (shares=${
+            `🟢 侦测到买入: ${subject} by ${trader} (tx=${txHash}, 区块=${
+              blockNumber || 0
+            }, txIndex=${txIndex ?? "?"}, logIndex=${logIndex ?? "?"}, shares=${
               shareAmount?.toString?.() || shareAmount
             }, tokens=${
               tokenAmount?.toString?.() || tokenAmount
@@ -289,13 +294,48 @@ class ContractMonitor {
       } else {
         // 简要记录卖出事件
         console.log(
-          `🔴 侦测到卖出: ${subject} (shares=${
+          `🔴 侦测到卖出: ${subject} by ${trader} (tx=${txHash}, 区块=${
+            blockNumber || 0
+          }, txIndex=${txIndex ?? "?"}, logIndex=${logIndex ?? "?"}, shares=${
             shareAmount?.toString?.() || shareAmount
           }, tokens=${
             tokenAmount?.toString?.() || tokenAmount
           }, 供应量=${supply.toString()})`
         );
       }
+
+      // 异步获取并打印对方交易费率（不查回执，只查交易）
+      setImmediate(async () => {
+        try {
+          if (!txHash || txHash === "unknown") return;
+          const tx = await this.provider.getTransaction(txHash);
+          if (!tx) return;
+          const type = tx.type;
+          const maxFee = tx.maxFeePerGas ?? null;
+          const maxPrio = tx.maxPriorityFeePerGas ?? null;
+          const gp = tx.gasPrice ?? null;
+          if (maxFee || maxPrio) {
+            const maxFeeGwei = maxFee
+              ? ethers.formatUnits(maxFee, "gwei")
+              : "-";
+            const prioGwei = maxPrio
+              ? ethers.formatUnits(maxPrio, "gwei")
+              : "-";
+            console.log(
+              `⛽ PeerFee(type=${type}): maxFee=${maxFeeGwei} gwei, maxPriority=${prioGwei} gwei`
+            );
+          } else if (gp) {
+            console.log(
+              `⛽ PeerFee(legacy type=${type}): gasPrice=${ethers.formatUnits(
+                gp,
+                "gwei"
+              )} gwei`
+            );
+          }
+        } catch (e) {
+          console.error("获取交易费率失败:", e?.message || e);
+        }
+      });
 
       // 检查是否是新代币创建 (仅判断 supply=1)
       if (isBuy && supply.toString() === "1") {
