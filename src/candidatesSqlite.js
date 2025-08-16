@@ -29,13 +29,25 @@ class SqliteCandidateStore {
         boughtTxHash TEXT,
         boughtAt INTEGER,
         ignoredAt INTEGER,
-        lastError TEXT
+        lastError TEXT,
+        backroomAttempts INTEGER,
+        twitterAttempts INTEGER
       );
     `);
     // 迁移：旧表补充 addressChecksum 列（忽略已存在错误）
     try {
       this.db
         .prepare("ALTER TABLE candidates ADD COLUMN addressChecksum TEXT")
+        .run();
+    } catch (e) {}
+    try {
+      this.db
+        .prepare("ALTER TABLE candidates ADD COLUMN backroomAttempts INTEGER")
+        .run();
+    } catch (e) {}
+    try {
+      this.db
+        .prepare("ALTER TABLE candidates ADD COLUMN twitterAttempts INTEGER")
         .run();
     } catch (e) {}
   }
@@ -55,8 +67,8 @@ class SqliteCandidateStore {
       checksum = address;
     }
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO candidates (address, addressChecksum, curveIndex, multiplier, txHash, createdAt, lastChecked, status)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending')
+      INSERT OR IGNORE INTO candidates (address, addressChecksum, curveIndex, multiplier, txHash, createdAt, lastChecked, status, backroomAttempts, twitterAttempts)
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', 0, 0)
     `);
     stmt.run(
       address.toLowerCase(),

@@ -74,18 +74,40 @@ class TokenScanner {
     const room = await this.fetchRoom(checksum);
     if (!room) {
       this.logger.log(`🕓 Backroom：未返回 ${address} 的房间数据（继续轮询）`);
+      const currentAttempts = Number(candidate.backroomAttempts || 0) + 1;
       await this.candidateStore.updateCandidate(address, {
         lastChecked: Date.now(),
+        backroomAttempts: currentAttempts,
       });
+      if (currentAttempts >= (this.config.backroomMaxAttempts ?? 10)) {
+        this.logger.warn(
+          `🗑️ Backroom 超过最大轮询次数(${currentAttempts})，删除候选: ${address}`
+        );
+        await this.candidateStore.markIgnored(
+          address,
+          "backroom max attempts reached"
+        );
+      }
       return;
     }
     if (!room.creatorTwitter) {
       this.logger.log(
         `🕓 Backroom：房间数据缺少 creatorTwitter（继续轮询） address=${address}`
       );
+      const currentAttempts = Number(candidate.backroomAttempts || 0) + 1;
       await this.candidateStore.updateCandidate(address, {
         lastChecked: Date.now(),
+        backroomAttempts: currentAttempts,
       });
+      if (currentAttempts >= (this.config.backroomMaxAttempts ?? 10)) {
+        this.logger.warn(
+          `🗑️ Backroom 超过最大轮询次数(${currentAttempts})，删除候选: ${address}`
+        );
+        await this.candidateStore.markIgnored(
+          address,
+          "backroom max attempts reached"
+        );
+      }
       return;
     }
 
