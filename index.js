@@ -72,7 +72,8 @@ class TokenBot {
         this.wallet,
         this.config.contractAddress,
         this.abi,
-        this.portfolio
+        this.portfolio,
+        this.config
       );
 
       // 创建监控器

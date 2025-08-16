@@ -1,12 +1,13 @@
 const { ethers } = require("ethers");
 
 class Trader {
-  constructor(provider, wallet, contractAddress, abi, portfolio) {
+  constructor(provider, wallet, contractAddress, abi, portfolio, config = {}) {
     this.provider = provider;
     this.wallet = wallet;
     this.contractAddress = contractAddress;
     this.contract = new ethers.Contract(contractAddress, abi, wallet);
     this.portfolio = portfolio;
+    this.config = config || {};
 
     // 卖出队列（串行）
     this.sellQueue = [];
@@ -52,9 +53,31 @@ class Trader {
       }
 
       // 构建并发送交易 (使用 EIP-1559)
+      const fee = await this.provider.getFeeData();
+      const boost = Number(this.config.gasBoostMultiplier || 1);
+      const tipOverride = this.config.gasTipGwei
+        ? ethers.parseUnits(String(this.config.gasTipGwei), "gwei")
+        : fee.maxPriorityFeePerGas
+        ? fee.maxPriorityFeePerGas * BigInt(Math.max(1, boost))
+        : null;
+      const maxFeeOverride = fee.maxFeePerGas
+        ? fee.maxFeePerGas * BigInt(Math.max(1, boost))
+        : null;
+
       const txData = {
         to: this.contractAddress,
         data: encodedData,
+        gasLimit: this.config.buyGasLimit || 250000,
+        ...(tipOverride ? { maxPriorityFeePerGas: tipOverride } : {}),
+        ...(maxFeeOverride ? { maxFeePerGas: maxFeeOverride } : {}),
+        ...(this.config.usePendingNonce
+          ? {
+              nonce: await this.provider.getTransactionCount(
+                this.wallet.address,
+                "pending"
+              ),
+            }
+          : {}),
       };
 
       const tx = await this.wallet.sendTransaction(txData);
