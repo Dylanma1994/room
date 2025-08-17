@@ -167,15 +167,6 @@ class TokenScanner {
       this.logger.log(
         `✅ 条件满足(任一满足)：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，命中=${hitReason}，买入 ${buyAmount} 个 ${checksum}`
       );
-      // 条件满足时推送通知（可配置）
-      await this.notifyConditionMet({
-        address: checksum,
-        creatorTwitter,
-        followers,
-        isBlue,
-        hitReason,
-        buyAmount,
-      });
       try {
         const curveIndex = candidate.curveIndex ?? 0;
         const res = await this.trader.buyToken(address, buyAmount, curveIndex);
@@ -193,6 +184,16 @@ class TokenScanner {
             }`
           );
           await this.candidateStore.markBought(address, res.txHash || null);
+          // 买入成功后异步通知，不阻塞主流程
+          this.notifyConditionMet({
+            address: checksum,
+            creatorTwitter,
+            followers,
+            isBlue,
+            hitReason,
+            buyAmount,
+            txHash: res.txHash,
+          }).catch(() => {}); // 忽略通知错误
         }
       } catch (e) {
         this.logger.error(`❌ 买入过程异常: ${e?.message || e}`);
