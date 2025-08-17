@@ -157,19 +157,25 @@ class TokenScanner {
     const followersThreshold = Number(
       this.config.twitterFollowersThreshold ?? 10000
     );
-    const requireBlue =
-      this.config.requireBlueVerification !== undefined
-        ? !!this.config.requireBlueVerification
-        : true;
     const buyAmount = Number(this.config.buyAmountOnCondition ?? 5);
 
     const passFollowers = followers > followersThreshold;
-    const passBlue = !requireBlue || isBlue;
+    const passBlue = !!isBlue;
+    const hitReason = passFollowers ? "followers" : passBlue ? "blue" : "none";
 
-    if (passFollowers && passBlue) {
+    if (passFollowers || passBlue) {
       this.logger.log(
-        `✅ 条件满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，买入 ${buyAmount} 个 ${checksum}`
+        `✅ 条件满足(任一满足)：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，命中=${hitReason}，买入 ${buyAmount} 个 ${checksum}`
       );
+      // 条件满足时推送通知（可配置）
+      await this.notifyConditionMet({
+        address: checksum,
+        creatorTwitter,
+        followers,
+        isBlue,
+        hitReason,
+        buyAmount,
+      });
       try {
         const curveIndex = candidate.curveIndex ?? 0;
         const res = await this.trader.buyToken(address, buyAmount, curveIndex);
@@ -253,6 +259,42 @@ class TokenScanner {
       return json.data || null;
     } catch (e) {
       return null;
+    }
+  }
+
+  async notifyConditionMet(payload) {
+    try {
+      const {
+        address,
+        creatorTwitter,
+        followers,
+        isBlue,
+        hitReason,
+        buyAmount,
+      } = payload || {};
+      const url =
+        this.config.barkEndpoint ||
+        "https://dylan-bark-server.onrender.com/dylan";
+      const title = `Hit: ${address}`;
+      const body = `twitter=${creatorTwitter} followers=${followers} blue=${isBlue} reason=${hitReason} buy=${buyAmount}`;
+
+      const params = {
+        title,
+        body,
+        group: "scanner",
+        level: "active",
+        isArchive: 1,
+        sound: "minuet.caf",
+        url: `https://app.backroom.tech/room/${address}`,
+      };
+
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      }).catch(() => null);
+    } catch (_) {
+      // 通知失败不影响主流程
     }
   }
 }
