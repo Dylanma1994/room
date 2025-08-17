@@ -94,9 +94,7 @@ class Trader {
       const txData = {
         to: this.contractAddress,
         data: encodedData,
-        gasLimit: this.config.buyGasLimit || 250000,
-        ...(finalTip ? { maxPriorityFeePerGas: finalTip } : {}),
-        ...(finalMaxFee ? { maxFeePerGas: finalMaxFee } : {}),
+        // 使用网络默认的 gasLimit 与 EIP-1559 费率，不做手动覆盖
         ...(this.config.usePendingNonce
           ? {
               nonce: await this.provider.getTransactionCount(
@@ -107,15 +105,11 @@ class Trader {
           : {}),
       };
 
-      // 打印提交时的费率参数（对照他人提交的费率）
-      const tipGweiLog = txData.maxPriorityFeePerGas
-        ? ethers.formatUnits(txData.maxPriorityFeePerGas, "gwei")
-        : "-";
-      const maxFeeGweiLog = txData.maxFeePerGas
-        ? ethers.formatUnits(txData.maxFeePerGas, "gwei")
-        : "-";
+      // 使用默认 Gas/费率，打印简要说明
+      const tipGweiLog = "-(default)";
+      const maxFeeGweiLog = "-(default)";
       console.log(
-        `🧾 提交费率: maxPriority=${tipGweiLog} gwei, maxFee=${maxFeeGweiLog} gwei, gasLimit=${txData.gasLimit}`
+        `🧾 提交费率: 使用网络默认 (maxPriority=${tipGweiLog}, maxFee=${maxFeeGweiLog}, gasLimit=auto)`
       );
 
       const tx = await this.wallet.sendTransaction(txData);
