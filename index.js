@@ -247,8 +247,6 @@ class TokenBot {
     }
   }
 
-  // 已移除: 定时卖出所有功能
-
   async start() {
     if (this.isRunning) {
       console.log("⚠️  机器人已在运行中");

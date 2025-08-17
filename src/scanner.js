@@ -198,12 +198,13 @@ class TokenScanner {
         const curveIndex = candidate.curveIndex ?? 0;
         const res = await this.trader.buyToken(address, buyAmount, curveIndex);
         if (!res?.success) {
-          this.logger.error(`买入失败: ${res?.error || "未知错误"}`);
-          await this.candidateStore.updateCandidate(address, {
-            status: "error",
-            lastChecked: Date.now(),
-            lastError: res?.error || "buy failed",
-          });
+          this.logger.error(
+            `买入失败，跳过该候选: ${res?.error || "未知错误"}`
+          );
+          await this.candidateStore.markIgnored(
+            address,
+            `buy failed: ${res?.error || "unknown"}`
+          );
         } else {
           this.logger.log(
             `🟢 已下单：tx=${res.txHash || "?"}, block=${
@@ -223,12 +224,11 @@ class TokenScanner {
           }).catch(() => {}); // 忽略通知错误
         }
       } catch (e) {
-        this.logger.error(`❌ 买入过程异常: ${e?.message || e}`);
-        await this.candidateStore.updateCandidate(address, {
-          status: "error",
-          lastChecked: Date.now(),
-          lastError: e?.message || String(e),
-        });
+        this.logger.error(`❌ 买入过程异常，跳过该候选: ${e?.message || e}`);
+        await this.candidateStore.markIgnored(
+          address,
+          `buy exception: ${e?.message || String(e)}`
+        );
       }
     } else {
       const modeText = conditionMode === "OR" ? "任一未满足" : "需同时满足";
