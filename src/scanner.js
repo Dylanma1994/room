@@ -74,40 +74,44 @@ class TokenScanner {
     const room = await this.fetchRoom(checksum);
     if (!room) {
       this.logger.log(`🕓 Backroom：未返回 ${address} 的房间数据（继续轮询）`);
+      const now = Date.now();
+      const createdAt = Number(candidate.createdAt || now);
+      const timeoutMinutes = Number(this.config.backroomTimeoutMinutes ?? 5);
+      const timeoutMs = Math.max(1, timeoutMinutes) * 60 * 1000;
+      if (now - createdAt >= timeoutMs) {
+        this.logger.warn(
+          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到房间信息，删除候选: ${address}`
+        );
+        await this.candidateStore.removeCandidate(address);
+        return;
+      }
       const currentAttempts = Number(candidate.backroomAttempts || 0) + 1;
       await this.candidateStore.updateCandidate(address, {
-        lastChecked: Date.now(),
+        lastChecked: now,
         backroomAttempts: currentAttempts,
       });
-      if (currentAttempts >= (this.config.backroomMaxAttempts ?? 10)) {
-        this.logger.warn(
-          `🗑️ Backroom 超过最大轮询次数(${currentAttempts})，删除候选: ${address}`
-        );
-        await this.candidateStore.markIgnored(
-          address,
-          "backroom max attempts reached"
-        );
-      }
       return;
     }
     if (!room.creatorTwitter) {
       this.logger.log(
         `🕓 Backroom：房间数据缺少 creatorTwitter（继续轮询） address=${address}`
       );
+      const now = Date.now();
+      const createdAt = Number(candidate.createdAt || now);
+      const timeoutMinutes = Number(this.config.backroomTimeoutMinutes ?? 5);
+      const timeoutMs = Math.max(1, timeoutMinutes) * 60 * 1000;
+      if (now - createdAt >= timeoutMs) {
+        this.logger.warn(
+          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到 creatorTwitter，删除候选: ${address}`
+        );
+        await this.candidateStore.removeCandidate(address);
+        return;
+      }
       const currentAttempts = Number(candidate.backroomAttempts || 0) + 1;
       await this.candidateStore.updateCandidate(address, {
-        lastChecked: Date.now(),
+        lastChecked: now,
         backroomAttempts: currentAttempts,
       });
-      if (currentAttempts >= (this.config.backroomMaxAttempts ?? 10)) {
-        this.logger.warn(
-          `🗑️ Backroom 超过最大轮询次数(${currentAttempts})，删除候选: ${address}`
-        );
-        await this.candidateStore.markIgnored(
-          address,
-          "backroom max attempts reached"
-        );
-      }
       return;
     }
 
