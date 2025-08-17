@@ -204,11 +204,11 @@ class TokenScanner {
       }
     } else {
       this.logger.log(
-        `🗑️ 条件不满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，标记无需买入 ${checksum}`
+        `🗑️ 条件不满足(任一未满足)：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，标记无需买入 ${checksum}`
       );
       await this.candidateStore.markIgnored(
         address,
-        `criteria not met: followers>${followersThreshold} && blueRequired=${requireBlue}`
+        `criteria not met (OR): followers>${followersThreshold} or blue=true`
       );
     }
   }
