@@ -24,6 +24,7 @@ class SqliteCandidateStore {
         lastChecked INTEGER,
         status TEXT NOT NULL CHECK(status IN ('pending','bought','ignored','error')),
         creatorTwitter TEXT,
+        creatorWallet TEXT,
         followers INTEGER,
         isBlue INTEGER,
         boughtTxHash TEXT,
@@ -31,7 +32,8 @@ class SqliteCandidateStore {
         ignoredAt INTEGER,
         lastError TEXT,
         backroomAttempts INTEGER,
-        twitterAttempts INTEGER
+        twitterAttempts INTEGER,
+        pendingCreatorSell INTEGER
       );
     `);
     // 迁移：旧表补充 addressChecksum 列（忽略已存在错误）

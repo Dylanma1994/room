@@ -17,6 +17,7 @@ class ContractMonitor {
     this.contract = new ethers.Contract(contractAddress, abi, provider);
     this.onNewToken = onNewToken;
     this.onExternalBuy = onExternalBuy; // 当他人买入某代币时的回调
+    this.onCreatorSell = options.onCreatorSell || null; // 当创作者卖出时回调
 
     // 可选的重建连接参数
     this.wsUrl = options.wsUrl || null;
@@ -302,6 +303,32 @@ class ContractMonitor {
             tokenAmount?.toString?.() || tokenAmount
           }, 供应量=${supply.toString()})`
         );
+      }
+
+      // 如果是创作者本人卖出（trader == subject），触发回调
+      if (
+        !isBuy &&
+        trader &&
+        subject &&
+        trader.toLowerCase?.() === subject.toLowerCase?.()
+      ) {
+        if (this.onCreatorSell) {
+          setImmediate(async () => {
+            try {
+              await this.onCreatorSell({
+                subject,
+                trader,
+                txHash,
+                blockNumber: blockNumber || 0,
+                supply: supply?.toString?.() || String(supply),
+                shareAmount: shareAmount?.toString?.() || String(shareAmount),
+                tokenAmount: tokenAmount?.toString?.() || String(tokenAmount),
+              });
+            } catch (err) {
+              console.error("处理创作者卖出回调时出错:", err?.message || err);
+            }
+          });
+        }
       }
 
       // 异步获取并打印对方交易费率（不查回执，只查交易）

@@ -92,7 +92,11 @@ class TokenBot {
         this.abi,
         this.onNewTokenDetected.bind(this),
         this.onExternalBuyDetected.bind(this),
-        { wsUrl: this.config.wsUrl, rpcUrl: this.config.rpcUrl }
+        {
+          wsUrl: this.config.wsUrl,
+          rpcUrl: this.config.rpcUrl,
+          onCreatorSell: this.onCreatorSellDetected.bind(this),
+        }
       );
 
       await this.monitor.init();
@@ -215,6 +219,31 @@ class TokenBot {
       }
     } catch (error) {
       console.error("❌ 处理外部买入触发卖出时出错:", error);
+    }
+  }
+
+  // 当创作者卖出时，自动卖出我们持有的该代币
+  async onCreatorSellDetected({ subject, trader, txHash, blockNumber }) {
+    try {
+      if (!this.config.autoSellOnCreatorSell) return;
+
+      // 检查持仓
+      const amount = await this.portfolio.getTokenAmount(subject);
+      if (!amount || amount <= 0) return;
+
+      console.log(`\n⚠️ 检测到创作者卖出，触发自动卖出`);
+      console.log(`   代币: ${subject}`);
+      console.log(`   创作者: ${trader}`);
+      console.log(`   我们持有数量: ${amount}`);
+
+      const result = await this.trader.sellToken(subject, amount);
+      if (result.success) {
+        console.log(`✅ 因创作者卖出已卖出 ${subject}, tx: ${result.txHash}`);
+      } else {
+        console.log(`❌ 创作者卖出触发的自动卖出失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("❌ 处理创作者卖出触发卖出时出错:", error);
     }
   }
 

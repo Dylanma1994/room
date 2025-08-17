@@ -161,14 +161,38 @@ class TokenScanner {
       this.config.twitterFollowersThreshold ?? 10000
     );
     const buyAmount = Number(this.config.buyAmountOnCondition ?? 5);
+    const conditionMode = String(
+      this.config.conditionMode || "AND"
+    ).toUpperCase();
 
     const passFollowers = followers > followersThreshold;
     const passBlue = !!isBlue;
-    const hitReason = passFollowers ? "followers" : passBlue ? "blue" : "none";
 
-    if (passFollowers || passBlue) {
+    // 根据配置决定是 AND 还是 OR
+    const conditionMet =
+      conditionMode === "OR"
+        ? passFollowers || passBlue
+        : passFollowers && passBlue;
+
+    const hitReason =
+      conditionMode === "OR"
+        ? passFollowers
+          ? "followers"
+          : passBlue
+          ? "blue"
+          : "none"
+        : passFollowers && passBlue
+        ? "followers&blue"
+        : passFollowers
+        ? "followers"
+        : passBlue
+        ? "blue"
+        : "none";
+
+    if (conditionMet) {
+      const modeText = conditionMode === "OR" ? "任一满足" : "同时满足";
       this.logger.log(
-        `✅ 条件满足(任一满足)：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，命中=${hitReason}，买入 ${buyAmount} 个 ${checksum}`
+        `✅ 条件满足(${modeText})：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，命中=${hitReason}，买入 ${buyAmount} 个 ${checksum}`
       );
       try {
         const curveIndex = candidate.curveIndex ?? 0;
@@ -207,12 +231,17 @@ class TokenScanner {
         });
       }
     } else {
+      const modeText = conditionMode === "OR" ? "任一未满足" : "需同时满足";
+      const reasonText =
+        conditionMode === "OR"
+          ? `followers>${followersThreshold} or blue=true`
+          : `followers>${followersThreshold} and blue=true`;
       this.logger.log(
-        `🗑️ 条件不满足(任一未满足)：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，标记无需买入 ${checksum}`
+        `🗑️ 条件不满足(${modeText})：粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue}，标记无需买入 ${checksum}`
       );
       await this.candidateStore.markIgnored(
         address,
-        `criteria not met (OR): followers>${followersThreshold} or blue=true`
+        `criteria not met (${conditionMode}): ${reasonText}`
       );
     }
   }
