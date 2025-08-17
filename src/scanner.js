@@ -6,8 +6,9 @@ class TokenScanner {
     this.logger = logger;
     this.isRunning = false;
     this.timer = null;
+    // 按配置执行轮询间隔（毫秒），允许小于 1000ms 的值（例如 500ms）
     this.intervalMs = Math.max(
-      2000,
+      1,
       Number(this.config.scannerIntervalMs || 5000)
     );
   }
@@ -32,9 +33,11 @@ class TokenScanner {
       }
     };
 
-    this.logger.log(
-      `🔍 启动扫描进程: 每 ${Math.floor(this.intervalMs / 1000)}s 检查候选代币`
-    );
+    const displayInterval =
+      this.intervalMs >= 1000
+        ? `${Math.round(this.intervalMs / 1000)}s`
+        : `${this.intervalMs}ms`;
+    this.logger.log(`🔍 启动扫描进程: 每 ${displayInterval} 检查候选代币`);
     loop();
   }
 
@@ -272,12 +275,15 @@ class TokenScanner {
         isBlue,
         hitReason,
         buyAmount,
+        txHash,
       } = payload || {};
       const url =
         this.config.barkEndpoint ||
         "https://dylan-bark-server.onrender.com/dylan";
       const title = `Hit: ${address}`;
-      const body = `twitter=${creatorTwitter} followers=${followers} blue=${isBlue} reason=${hitReason} buy=${buyAmount}`;
+      const body = `twitter=${creatorTwitter} followers=${followers} blue=${isBlue} reason=${hitReason} buy=${buyAmount}${
+        txHash ? ` tx=${txHash}` : ""
+      }`;
 
       const params = {
         title,
