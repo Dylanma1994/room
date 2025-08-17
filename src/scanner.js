@@ -59,10 +59,12 @@ class TokenScanner {
 
     for (const c of candidates) {
       try {
-        this.logger.log(`➡️  处理候选: ${c.address}`);
+        const disp = c.addressChecksum || c.address;
+        this.logger.log(`➡️  处理候选: ${disp}`);
         await this.handleCandidate(c);
       } catch (e) {
-        this.logger.warn(`候选处理失败: ${c.address}`, e?.message || e);
+        const disp = c.addressChecksum || c.address;
+        this.logger.warn(`候选处理失败: ${disp}`, e?.message || e);
       }
     }
   }
@@ -73,14 +75,14 @@ class TokenScanner {
     // 1) 轮询 Backroom API，直到拿到 creatorTwitter
     const room = await this.fetchRoom(checksum);
     if (!room) {
-      this.logger.log(`🕓 Backroom：未返回 ${address} 的房间数据（继续轮询）`);
+      this.logger.log(`🕓 Backroom：未返回 ${checksum} 的房间数据（继续轮询）`);
       const now = Date.now();
       const createdAt = Number(candidate.createdAt || now);
       const timeoutMinutes = Number(this.config.backroomTimeoutMinutes ?? 5);
       const timeoutMs = Math.max(1, timeoutMinutes) * 60 * 1000;
       if (now - createdAt >= timeoutMs) {
         this.logger.warn(
-          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到房间信息，删除候选: ${address}`
+          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到房间信息，删除候选: ${checksum}`
         );
         await this.candidateStore.removeCandidate(address);
         return;
@@ -94,7 +96,7 @@ class TokenScanner {
     }
     if (!room.creatorTwitter) {
       this.logger.log(
-        `🕓 Backroom：房间数据缺少 creatorTwitter（继续轮询） address=${address}`
+        `🕓 Backroom：房间数据缺少 creatorTwitter（继续轮询） address=${checksum}`
       );
       const now = Date.now();
       const createdAt = Number(candidate.createdAt || now);
@@ -102,7 +104,7 @@ class TokenScanner {
       const timeoutMs = Math.max(1, timeoutMinutes) * 60 * 1000;
       if (now - createdAt >= timeoutMs) {
         this.logger.warn(
-          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到 creatorTwitter，删除候选: ${address}`
+          `🗑️ Backroom 超时（>${timeoutMinutes} 分钟）未获取到 creatorTwitter，删除候选: ${checksum}`
         );
         await this.candidateStore.removeCandidate(address);
         return;
@@ -166,7 +168,7 @@ class TokenScanner {
 
     if (passFollowers && passBlue) {
       this.logger.log(
-        `✅ 条件满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，买入 ${buyAmount} 个 ${address}`
+        `✅ 条件满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，买入 ${buyAmount} 个 ${checksum}`
       );
       try {
         const curveIndex = candidate.curveIndex ?? 0;
@@ -196,7 +198,7 @@ class TokenScanner {
       }
     } else {
       this.logger.log(
-        `🗑️ 条件不满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，标记无需买入 ${address}`
+        `🗑️ 条件不满足：${creatorTwitter} 粉丝=${followers} (阈值>${followersThreshold}), 蓝V=${isBlue} (要求=${requireBlue})，标记无需买入 ${checksum}`
       );
       await this.candidateStore.markIgnored(
         address,
