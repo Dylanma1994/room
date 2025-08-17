@@ -3,8 +3,43 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { ethers } = require("ethers");
-const Portfolio = require("../src/portfolio");
 const Trader = require("../src/trader");
+const SqliteCandidateStore = require("../src/candidatesSqlite");
+
+// 轻量内存持仓：避免使用 JSON 文件，配合 Trader 的最小方法集合
+class MemoryPortfolio {
+  constructor() {
+    this._deferred = new Set();
+    this._balances = new Map(); // addr(lower) -> amount(BigInt or Number)
+  }
+  async init() {}
+  async getTokenAmount(addr) {
+    const key = String(addr).toLowerCase();
+    const v = this._balances.get(key);
+    return v || 0;
+  }
+  async removeToken(addr, amount) {
+    const key = String(addr).toLowerCase();
+    const cur = Number(this._balances.get(key) || 0);
+    const next = Math.max(0, cur - Number(amount || 0));
+    if (next === 0) this._balances.delete(key);
+    else this._balances.set(key, next);
+    return true;
+  }
+  async setAmount(addr, amount) {
+    const key = String(addr).toLowerCase();
+    this._balances.set(key, Number(amount || 0));
+  }
+  async markDeferredSell(addr) {
+    this._deferred.add(String(addr).toLowerCase());
+  }
+  async clearDeferredSell(addr) {
+    this._deferred.delete(String(addr).toLowerCase());
+  }
+  async isDeferredSell(addr) {
+    return this._deferred.has(String(addr).toLowerCase());
+  }
+}
 
 async function loadConfig() {
   const file = path.join(__dirname, "../config.json");
@@ -16,11 +51,11 @@ async function loadConfig() {
 }
 
 async function main() {
-  console.log("🚀 启动定时卖出脚本...");
+  console.log("🚀 启动自动卖出脚本...");
   const config = await loadConfig();
 
-  const minutes = Number(config.autoSellIntervalMinutes || 0);
-  if (!minutes || minutes <= 0) {
+  const holdMinutes = Number(config.autoSellIntervalMinutes || 0);
+  if (!holdMinutes || holdMinutes <= 0) {
     console.log("⏱️ 未配置 autoSellIntervalMinutes 或为 0，脚本无需运行");
     process.exit(0);
   }
@@ -30,61 +65,85 @@ async function main() {
   const wallet = new ethers.Wallet(config.privateKey, provider);
   console.log(`👛 钱包地址: ${wallet.address}`);
 
-  // Portfolio & Trader
-  const portfolio = new Portfolio();
+  // Candidates (SQLite) & Trader（使用内存持仓）
+  const candidateStore = new SqliteCandidateStore({
+    dbPath:
+      config.candidateDbPath || path.join(__dirname, "../data/candidates.db"),
+  });
+  await candidateStore.init();
+
+  const portfolio = new MemoryPortfolio();
   await portfolio.init();
+
   const trader = new Trader(
     provider,
     wallet,
     config.contractAddress,
-    // 这里不需要 ABI，Trader 构造函数会使用 provider+wallet 直接 create contract
-    // 但我们项目内的 Trader 构造函数签名需要 abi，沿用 index.js 的方式
-    // 为保持一致，我们复用 index.js 中加载的 ABI 文件
-    // 简单起见在此处加载 abi 文件
     await fs.readJson(path.join(__dirname, "../abi/contract.json")),
     portfolio,
     config
   );
 
-  const intervalMs = Math.max(60_000, Math.floor(minutes * 60 * 1000));
-  console.log(`⏱️ 定时卖出: 每 ${minutes} 分钟执行一次`);
+  const holdTimeMs = holdMinutes * 60 * 1000;
+  console.log(`⏱️ 自动卖出: 持仓超过 ${holdMinutes} 分钟的代币将被卖出`);
 
   let running = false;
   setInterval(async () => {
     if (running) return;
     running = true;
     try {
-      const tokens = await portfolio.getAllTokens();
-      if (!tokens || tokens.length === 0) {
-        return;
-      }
+      const now = Date.now();
+      const boughtCandidates = candidateStore.listCandidates({
+        status: "bought",
+      });
 
-      for (const token of tokens) {
+      for (const c of boughtCandidates) {
+        const addrLower = c.address; // 小写地址（与 Trader 使用一致）
+        const addrDisp = c.addressChecksum || c.address;
         try {
-          const deferred = await portfolio.isDeferredSell(token);
-          if (deferred) {
-            console.log(`⏭️ 跳过延迟卖出: ${token}`);
-            continue;
-          }
-          const amount = await portfolio.getTokenAmount(token);
-          if (!amount || amount <= 0) continue;
-          console.log(`💸 定时卖出: ${token}, 数量=${amount}`);
-          const res = await trader.sellToken(token, amount);
+          // 跳过已标记延迟卖出的代币（内存标记，避免频繁重试）
+          const deferred = await portfolio.isDeferredSell(addrLower);
+          if (deferred) continue;
+
+          // 使用 SQLite 的 boughtAt 判定是否超时
+          const boughtAt = Number(c.boughtAt || 0);
+          if (!boughtAt) continue;
+
+          const holdTime = now - boughtAt;
+          if (holdTime < holdTimeMs) continue;
+
+          // 库中无数量字段，按需求默认 1 个
+          const amount = Number(c.amount || 1);
+          // 为满足 Trader 的本地检查，将数量写入内存持仓
+          await portfolio.setAmount(addrLower, amount);
+
+          const holdMinutesActual = Math.floor(holdTime / 60000);
+          console.log(
+            `💸 持仓超时卖出: ${addrDisp}, 持仓时间=${holdMinutesActual}分钟, 数量=${amount}`
+          );
+
+          const res = await trader.sellToken(addrLower, amount);
           if (res?.success) {
-            console.log(`✅ 定时卖出成功: ${token}, tx=${res.txHash || "-"}`);
+            console.log(
+              `✅ 超时卖出成功: ${addrDisp}, tx=${res.txHash || "-"}`
+            );
           } else {
-            console.log(`❌ 定时卖出失败: ${token}, err=${res?.error || "unknown"}`);
+            console.log(
+              `❌ 超时卖出失败: ${addrDisp}, err=${res?.error || "unknown"}`
+            );
           }
         } catch (err) {
-          console.log(`❌ 定时卖出处理异常: ${token}, ${err?.message || err}`);
+          console.log(
+            `❌ 超时卖出处理异常: ${addrDisp}, ${err?.message || err}`
+          );
         }
       }
     } catch (e) {
-      console.log(`❌ 定时卖出任务异常: ${e?.message || e}`);
+      console.log(`❌ 自动卖出任务异常: ${e?.message || e}`);
     } finally {
       running = false;
     }
-  }, intervalMs);
+  }, 1000); // 每秒检查一次
 }
 
 if (require.main === module) {
@@ -93,4 +152,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-
