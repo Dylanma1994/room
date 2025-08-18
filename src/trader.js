@@ -265,6 +265,11 @@ class Trader {
             gasUsed: null,
           };
         }
+        // 新增：合约返回 Insufficient shares，直接返回失败，供上层跳过后续尝试
+        if (msg.includes("insufficient shares")) {
+          console.error("Gas 估算失败: Insufficient shares");
+          return { success: false, error: "Insufficient shares" };
+        }
         console.error("Gas 估算失败:", error);
         gasEstimate = 300000;
       }
@@ -324,6 +329,11 @@ class Trader {
             blockNumber: null,
             gasUsed: null,
           };
+        }
+        // 新增：Insufficient shares 直接返回失败
+        if (msg.includes("insufficient shares")) {
+          console.log("🛑 发送失败: Insufficient shares");
+          return { success: false, error: "Insufficient shares" };
         }
         throw sendError;
       }
