@@ -128,14 +128,35 @@ async function main() {
               `✅ 超时卖出成功: ${addrDisp}, tx=${res.txHash || "-"}`
             );
           } else {
+            const msg = String(res?.error || "").toLowerCase();
             console.log(
               `❌ 超时卖出失败: ${addrDisp}, err=${res?.error || "unknown"}`
             );
+            if (msg.includes("insufficient shares")) {
+              // 标记为忽略，后续不再尝试卖出
+              await candidateStore.markIgnored(
+                addrLower,
+                "insufficient shares"
+              );
+              console.log(
+                `🛑 检测到 Insufficient shares，已标记忽略后续卖出: ${addrDisp}`
+              );
+            }
           }
         } catch (err) {
           console.log(
             `❌ 超时卖出处理异常: ${addrDisp}, ${err?.message || err}`
           );
+          const msg = String(
+            err?.shortMessage || err?.message || err || ""
+          ).toLowerCase();
+          if (msg.includes("insufficient shares")) {
+            // 标记为忽略，后续不再尝试卖出
+            candidateStore.markIgnored(addrLower, "insufficient shares");
+            console.log(
+              `🛑 检测到 Insufficient shares（异常），已标记忽略后续卖出: ${addrDisp}`
+            );
+          }
         }
       }
     } catch (e) {
