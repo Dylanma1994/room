@@ -125,16 +125,9 @@ class TokenScanner {
     // 2) 请求 Twitter 数据
     const twitter = await this.fetchTwitterUser(creatorTwitter);
     if (!twitter) {
-      // 失败，继续轮询
-      this.logger.warn(
-        `⚠️ Twitter：获取失败（继续轮询） user=${creatorTwitter}`
-      );
-      await this.candidateStore.updateCandidate(address, {
-        lastChecked: Date.now(),
-        creatorTwitter,
-        status: "error",
-        lastError: "twitter fetch failed",
-      });
+      // 失败，直接跳过
+      this.logger.warn(`⚠️ Twitter：获取失败，跳过 user=${creatorTwitter}`);
+      await this.candidateStore.markIgnored(address, "twitter fetch failed");
       return;
     }
 
