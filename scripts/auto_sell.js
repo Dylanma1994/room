@@ -127,6 +127,8 @@ async function main() {
             console.log(
               `✅ 超时卖出成功: ${addrDisp}, tx=${res.txHash || "-"}`
             );
+            // 卖出成功后立刻在库中标记忽略，后续不再扫描该代币
+            candidateStore.markIgnored(addrLower, "sold by auto_sell");
           } else {
             const msg = String(res?.error || "").toLowerCase();
             console.log(
@@ -134,10 +136,7 @@ async function main() {
             );
             if (msg.includes("insufficient shares")) {
               // 标记为忽略，后续不再尝试卖出
-              await candidateStore.markIgnored(
-                addrLower,
-                "insufficient shares"
-              );
+              candidateStore.markIgnored(addrLower, "insufficient shares");
               console.log(
                 `🛑 检测到 Insufficient shares，已标记忽略后续卖出: ${addrDisp}`
               );
