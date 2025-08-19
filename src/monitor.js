@@ -30,6 +30,7 @@ class ContractMonitor {
     this.maxReconnectAttempts = 5;
     this.lastEventTime = Date.now();
     this.heartbeatInterval = null;
+    this.reconnecting = false; // 防重入重连
   }
 
   async init() {
@@ -142,10 +143,7 @@ class ContractMonitor {
     // 监听 provider 错误并重连
     this.provider.on("error", (error) => {
       console.error("Provider 错误:", error.message);
-      if (
-        this.isMonitoring &&
-        this.reconnectAttempts < this.maxReconnectAttempts
-      ) {
+      if (this.isMonitoring) {
         console.log(
           `🔄 尝试重新连接... (${this.reconnectAttempts + 1}/${
             this.maxReconnectAttempts
@@ -154,12 +152,10 @@ class ContractMonitor {
         this.reconnectAttempts++;
         setTimeout(() => {
           if (this.isMonitoring) {
-            this.reconnect();
+            // 出错优先强制重建连接
+            this.reconnect(true);
           }
         }, 5000);
-      } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error("❌ 达到最大重连次数，停止监控");
-        this.stopMonitoring();
       }
     });
 
@@ -204,35 +200,50 @@ class ContractMonitor {
       console.error("连接检查失败:", error);
       if (this.isMonitoring) {
         console.log("🔄 尝试重新连接...");
-        this.reconnect();
+        this.reconnect(true);
       }
     }
   }
 
   async reconnect(forceRecreate = false) {
+    if (this.reconnecting) return; // 防止并发重连
+    this.reconnecting = true;
     try {
       console.log("🔄 重新建立连接...");
 
       // 清除心跳检测
       if (this.heartbeatInterval) {
         clearInterval(this.heartbeatInterval);
+        this.heartbeatInterval = null;
       }
 
       // 移除旧的监听器
-      this.contract.removeAllListeners("Trade");
-      this.provider.removeAllListeners();
+      try {
+        this.contract.removeAllListeners("Trade");
+      } catch {}
+      try {
+        this.provider.removeAllListeners();
+      } catch {}
 
       // 可选：在 wss 断开长时间无事件时，重建 provider/contract
       if (forceRecreate && this.wsUrl) {
         try {
           this.provider?.destroy?.();
         } catch {}
-        this.provider = new ethers.WebSocketProvider(this.wsUrl);
-        this.contract = new ethers.Contract(
-          this.contractAddress,
-          this.abi,
-          this.provider
-        );
+        try {
+          this.provider = new ethers.WebSocketProvider(this.wsUrl);
+        } catch (e) {
+          console.error("重建 WebSocketProvider 失败:", e?.message || e);
+        }
+        try {
+          this.contract = new ethers.Contract(
+            this.contractAddress,
+            this.abi,
+            this.provider
+          );
+        } catch (e) {
+          console.error("重建合约失败:", e?.message || e);
+        }
       }
 
       // 重新设置监听器
@@ -249,6 +260,8 @@ class ContractMonitor {
       ) {
         setTimeout(() => this.reconnect(forceRecreate), 10000);
       }
+    } finally {
+      this.reconnecting = false;
     }
   }
 
